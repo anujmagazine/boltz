@@ -115,7 +115,8 @@
    ================================================================ */
 
 const W = 224, H = 256, S = 4;           // logical screen, internal render scale
-const FOOT = 2, GRAV = 0.16, JUMP_V = -2.15, MAXFALL = 3.2, FALL_DEATH = 22, WALK = 1.0, CLIMB = 0.8;
+// JUMP_G is a touch lighter than normal gravity: a committed, slightly floaty arcade hop (~half a second).
+const FOOT = 2, GRAV = 0.16, JUMP_V = -1.95, JUMP_G = 0.13, MAXFALL = 3.2, FALL_DEATH = 22, WALK = 1.0, CLIMB = 0.8;
 const FONT = '"Press Start 2P", ui-monospace, Menlo, Consolas, monospace';
 const C = {
   bg: '#070b1e', girder: '#ffb000', girderHi: '#ffd36b', ladder: '#b8c7dd', white: '#ffffff',
@@ -226,18 +227,35 @@ const HEART = sprite(['.RR.RR.', 'RRRRRRR', 'RRRRRRR', '.RRRRR.', '..RRR..', '..
 const STARS = Array.from({ length: 46 }, () => [Math.floor(rnd() * W), Math.floor(30 + rnd() * (H - 40)), rnd() < 0.3]);
 
 /* ---------------- audio (all synthesized) ---------------- */
-let actx = null, master = null, noiseBuf = null, muted = false;
+let actx = null, master = null, noiseBuf = null, muted = false, iosKeepAlive = null;
 try { muted = localStorage.getItem('gp_muted') === '1'; } catch (e) {}
+// A silent looping <audio> element switches iPhones to "media playback" mode, so the game's
+// sound is heard even when the ring/silent switch is set to silent.
+function silentWavURL() {
+  const n = 800, buf = new ArrayBuffer(44 + n * 2), v = new DataView(buf);
+  const w = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
+  w(0, 'RIFF'); v.setUint32(4, 36 + n * 2, true); w(8, 'WAVEfmt '); v.setUint32(16, 16, true);
+  v.setUint16(20, 1, true); v.setUint16(22, 1, true); v.setUint32(24, 8000, true); v.setUint32(28, 16000, true);
+  v.setUint16(32, 2, true); v.setUint16(34, 16, true); w(36, 'data'); v.setUint32(40, n * 2, true);
+  return URL.createObjectURL(new Blob([buf], { type: 'audio/wav' }));
+}
 function unlockAudio() {
   if (!actx) {
     const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
     try {
-      actx = new AC(); master = actx.createGain(); master.gain.value = 0.9; master.connect(actx.destination);
+      actx = new AC();
+      const comp = actx.createDynamicsCompressor();          // keeps it loud and punchy without clipping
+      comp.threshold.value = -14; comp.knee.value = 8; comp.ratio.value = 4; comp.attack.value = 0.003; comp.release.value = 0.15;
+      master = actx.createGain(); master.gain.value = 1.0;
+      master.connect(comp); comp.connect(actx.destination);
       noiseBuf = actx.createBuffer(1, Math.floor(actx.sampleRate * 0.5), actx.sampleRate);
       const d = noiseBuf.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = rnd() * 2 - 1;
     } catch (e) { actx = null; return; }
   }
   if (actx.state === 'suspended') actx.resume();
+  if (!iosKeepAlive) {
+    try { iosKeepAlive = new Audio(silentWavURL()); iosKeepAlive.loop = true; iosKeepAlive.setAttribute('playsinline', ''); iosKeepAlive.play().catch(() => {}); } catch (e) {}
+  }
 }
 function tone(f, d, type, v, to, delay) {
   if (!actx || muted) return;
@@ -256,41 +274,64 @@ function noise(d, v, delay) {
   s.connect(g); g.connect(master); s.start(t0); s.stop(t0 + d);
 }
 const midi = n => 440 * Math.pow(2, (n - 69) / 12);
+// Play a little melody: notes = MIDI numbers (0 = rest), each lasting `len` seconds.
+function jingle(notes, len, type, v, delay) {
+  notes.forEach((n, i) => { if (n) tone(midi(n), len * 0.92, type || 'square', v || 0.09, null, (delay || 0) + i * len); });
+}
+let lastThud = 0;
 const sfx = {
-  jump()   { tone(330, 0.12, 'square', 0.07, 660); },
-  land()   { tone(140, 0.04, 'triangle', 0.08); },
-  step()   { tone(180, 0.025, 'square', 0.022); },
-  climb()  { tone(260, 0.03, 'square', 0.025); },
-  score()  { tone(988, 0.06, 'square', 0.06); tone(1319, 0.08, 'square', 0.06, null, 0.06); },
-  smash()  { noise(0.15, 0.15); tone(220, 0.15, 'sawtooth', 0.07, 55); },
-  pickup() { [523, 659, 784, 1047].forEach((f, i) => tone(f, 0.07, 'square', 0.06, null, i * 0.06)); },
-  bolt()   { tone(1047, 0.05, 'square', 0.07); tone(1568, 0.08, 'square', 0.07, null, 0.05); },
-  die()    { for (let i = 0; i < 8; i++) tone(700 - i * 70, 0.1, 'square', 0.08, null, i * 0.1); noise(0.3, 0.08, 0.85); },
-  clear()  { [523, 659, 784, 1047, 784, 1047, 1319].forEach((f, i) => tone(f, 0.12, 'square', 0.07, null, i * 0.11)); },
-  throw()  { tone(110, 0.12, 'triangle', 0.14, 60); },
-  thud()   { tone(90, 0.05, 'triangle', 0.06); },
-  boing()  { tone(300, 0.09, 'sine', 0.04, 700); },
-  drop()   { tone(600, 0.25, 'square', 0.04, 150); },
-  fire()   { noise(0.2, 0.06); },
-  start()  { [392, 523, 659, 784, 1047].forEach((f, i) => tone(f, 0.1, 'square', 0.07, null, i * 0.08)); },
-  over()   { [523, 392, 330, 262, 196].forEach((f, i) => tone(f, 0.22, 'triangle', 0.1, null, i * 0.2)); },
-  life()   { [784, 988, 1175, 1568].forEach((f, i) => tone(f, 0.08, 'square', 0.07, null, i * 0.07)); },
-  warn()   { tone(1200, 0.05, 'square', 0.04); }
+  // footsteps: a bright two-tone "tick, tock" you can hear on a phone speaker
+  step(alt) { tone(alt ? 520 : 390, 0.035, 'square', 0.06, alt ? 300 : 230); },
+  climb(alt) { tone(alt ? 660 : 560, 0.03, 'square', 0.05); },
+  jump()   { tone(280, 0.16, 'square', 0.1, 950); },
+  land()   { tone(220, 0.05, 'square', 0.06, 110); noise(0.03, 0.05); },
+  score()  { tone(1319, 0.05, 'square', 0.07); tone(1760, 0.09, 'square', 0.07, null, 0.05); },
+  smash()  { noise(0.18, 0.22); tone(330, 0.16, 'sawtooth', 0.1, 70); },
+  hit()    { noise(0.12, 0.2); tone(180, 0.18, 'square', 0.12, 60); },
+  pickup() { jingle([72, 76, 79, 84, 88], 0.06, 'square', 0.08); },
+  bolt()   { tone(1175, 0.05, 'square', 0.09); tone(1568, 0.1, 'square', 0.09, null, 0.05); },
+  die()    { jingle([79, 78, 77, 76, 74, 72, 69, 65, 0, 57], 0.11, 'square', 0.1); noise(0.25, 0.12, 1.05); },
+  clear()  { jingle([72, 76, 79, 76, 79, 84, 0, 84], 0.1, 'square', 0.09); jingle([48, 0, 55, 0, 60, 0, 0, 60], 0.1, 'square', 0.07); },
+  levelClear() { jingle([72, 72, 76, 79, 84, 79, 84, 88, 0, 91], 0.11, 'square', 0.09); jingle([48, 0, 55, 0, 60, 0, 64, 0, 0, 60], 0.11, 'square', 0.07); },
+  throw()  { noise(0.08, 0.1); tone(160, 0.12, 'square', 0.1, 80); },
+  thud()   { if (performance.now() - lastThud < 70) return; lastThud = performance.now(); tone(150, 0.06, 'square', 0.07, 70); },
+  stomp()  { noise(0.15, 0.2); tone(110, 0.2, 'square', 0.14, 45); },
+  jet()    { noise(0.5, 0.12); tone(200, 0.5, 'sawtooth', 0.05, 900); },
+  boing()  { tone(330, 0.09, 'square', 0.05, 760); },
+  drop()   { tone(800, 0.25, 'square', 0.05, 200); },
+  fire()   { noise(0.25, 0.1); tone(240, 0.2, 'sawtooth', 0.04, 480); },
+  start()  { jingle([67, 72, 76, 79, 0, 76, 79, 84], 0.09, 'square', 0.09); jingle([43, 0, 48, 0, 0, 52, 0, 48], 0.09, 'square', 0.07); },
+  ready()  { jingle([72, 0, 72, 0, 79], 0.1, 'square', 0.08); },
+  over()   { jingle([72, 67, 64, 60, 0, 59, 60], 0.18, 'square', 0.09); },
+  life()   { jingle([84, 88, 91, 96], 0.07, 'square', 0.08); },
+  warn()   { tone(1400, 0.05, 'square', 0.05); }
 };
+// Original looping tunes: [melody, bass] per step. Pitched high enough for phone speakers.
 const TUNES = {
-  ramps:  [45, 57, 52, 57, 45, 57, 52, 59, 43, 55, 50, 55, 43, 55, 50, 57],
-  belts:  [48, 48, 55, 48, 51, 51, 58, 51, 46, 46, 53, 46, 50, 50, 55, 53],
-  lifts:  [40, 52, 47, 52, 41, 53, 48, 53, 43, 55, 50, 55, 41, 53, 48, 52],
-  bolts:  [45, 0, 45, 57, 0, 45, 55, 57, 43, 0, 43, 55, 0, 43, 53, 55],
-  mallet: [57, 64, 69, 64, 57, 64, 69, 72]
+  ramps: { f: 9,
+    lead: [69, 0, 72, 0, 76, 0, 74, 72, 69, 0, 0, 0, 65, 0, 69, 0, 67, 0, 71, 0, 74, 0, 72, 71, 68, 0, 71, 0, 76, 0, 0, 0],
+    bass: [57, 0, 64, 0, 57, 0, 64, 0, 53, 0, 60, 0, 53, 0, 60, 0, 55, 0, 62, 0, 55, 0, 62, 0, 52, 0, 59, 0, 52, 0, 56, 0] },
+  belts: { f: 9,
+    lead: [72, 74, 76, 0, 79, 0, 76, 0, 77, 0, 76, 74, 72, 0, 0, 0, 74, 76, 77, 0, 79, 0, 77, 0, 76, 0, 74, 0, 72, 0, 0, 0],
+    bass: [48, 0, 55, 0, 48, 0, 55, 0, 53, 0, 60, 0, 53, 0, 60, 0, 55, 0, 62, 0, 55, 0, 62, 0, 48, 0, 55, 0, 52, 0, 55, 0] },
+  lifts: { f: 9,
+    lead: [74, 0, 0, 77, 0, 0, 81, 0, 79, 0, 77, 0, 74, 0, 0, 0, 72, 0, 0, 76, 0, 0, 79, 0, 77, 0, 76, 0, 73, 0, 0, 0],
+    bass: [50, 0, 57, 0, 50, 0, 57, 0, 46, 0, 53, 0, 46, 0, 53, 0, 48, 0, 55, 0, 48, 0, 55, 0, 45, 0, 52, 0, 45, 0, 49, 0] },
+  bolts: { f: 8,
+    lead: [76, 0, 79, 0, 83, 0, 79, 0, 74, 0, 78, 0, 81, 0, 78, 0, 72, 0, 76, 0, 79, 0, 76, 0, 71, 0, 75, 0, 78, 0, 0, 0],
+    bass: [52, 0, 52, 59, 52, 0, 52, 59, 50, 0, 50, 57, 50, 0, 50, 57, 48, 0, 48, 55, 48, 0, 48, 55, 47, 0, 47, 54, 47, 0, 51, 54] },
+  mallet: { f: 5,
+    lead: [84, 79, 76, 79, 84, 79, 76, 79, 86, 81, 77, 81, 86, 81, 77, 81],
+    bass: [60, 0, 60, 0, 60, 0, 60, 0, 62, 0, 62, 0, 62, 0, 62, 0] }
 };
 function musicTick() {
   if (!actx || muted) return;
-  const ham = pl.mallet > 0, tune = ham ? TUNES.mallet : TUNES[st.type], stepF = ham ? 8 : 12;
-  if (st.frame % stepF === 0) {
-    const n = tune[Math.floor(st.frame / stepF) % tune.length];
-    if (n) tone(midi(n), stepF / 60 * 0.9, 'triangle', 0.045);
-  }
+  const tune = pl.mallet > 0 ? TUNES.mallet : TUNES[st.type];
+  st.mus = (st.mus || 0) + 1;
+  if (st.mus % tune.f !== 0) return;
+  const i = Math.floor(st.mus / tune.f) % tune.lead.length, dur = tune.f / 60;
+  if (tune.lead[i]) tone(midi(tune.lead[i]), dur * 0.85, 'square', 0.045);
+  if (tune.bass[i]) tone(midi(tune.bass[i]), dur * 0.9, 'square', 0.06);
 }
 
 /* ---------------- game state ---------------- */
@@ -386,7 +427,7 @@ const BUILD = {
       ladders: [L(180, g[0], g[1]), L(88, g[0], g[1]), L(40, g[1], g[2]), L(120, g[1], g[2]), L(168, g[2], g[3]), L(96, g[2], g[3]),
                 L(40, g[3], g[4]), L(136, g[3], g[4]), L(184, g[4], g[5]), L(104, g[4], g[5]), L(124, g[5], g[6])],
       goal: g[6], start: { x: 56, y: surf(g[0], 56) },
-      robot: { x: 24, y: surf(g[5], 24), pose: 'idle', t: diff.throwEvery - 70, throwAnim: 0 },
+      robot: { x: 40, y: surf(g[5], 40), pose: 'idle', t: diff.throwEvery - 70, throwAnim: 0 },
       dog: { x: 96, y: 64 },
       mallets: [{ x: 28, y: surf(g[1], 28) - 6 }, { x: 196, y: surf(g[4], 196) - 6 }],
       furnaceLit: false, fire: 0
@@ -476,9 +517,59 @@ function spawnSpark(x, y, born) {
 /* ---------------- flow ---------------- */
 function newGame() {
   Object.assign(game, { score: 0, lives: 3, level: 1, stageIdx: 0, extra: false, newHi: false, hiAtStart: game.hi });
-  sfx.start(); startIntro();
+  sfx.start(); startOpening();
 }
-function startIntro() { game.state = 'intro'; game.t = 0; buildStage(stageList(game.level)[game.stageIdx]); }
+function startIntro() { game.state = 'intro'; game.t = 0; buildStage(stageList(game.level)[game.stageIdx]); sfx.ready(); }
+
+/* ---- opening cutscene: Boltz climbs the gantry with Sparky, tosses him to the top, and stomps ---- */
+const OP = { climbStart: 30, climbEnd: 0, walkEnd: 0, tossEnd: 0, stompEnd: 0, end: 0 };
+function startOpening() {
+  buildStage('ramps');
+  game.state = 'opening'; game.t = 0;
+  const r = st.robot, G0 = st.plats[0], G5 = st.plats[5];
+  st.op = { x0: 200, yBottom: surf(G0, 200), yTop: surf(G5, 200), homeX: r.x };
+  r.x = 200; r.y = st.op.yBottom; r.pose = 'holdDog';
+  st.dogHeld = true;
+  OP.climbEnd = OP.climbStart + Math.ceil((st.op.yBottom - st.op.yTop) / 1.15);
+  OP.walkEnd = OP.climbEnd + Math.ceil((200 - st.op.homeX) / 1.6);
+  OP.tossEnd = OP.walkEnd + 40;
+  OP.stompEnd = OP.tossEnd + 66;
+  OP.end = OP.stompEnd + 50;
+}
+function updateOpening() {
+  st.frame++;
+  const t = game.t, r = st.robot, o = st.op, G5 = st.plats[5];
+  if (t < OP.climbStart) { r.pose = 'holdDog'; }
+  else if (t < OP.climbEnd) {
+    r.y = Math.max(o.yTop, o.yBottom - (t - OP.climbStart) * 1.15); r.pose = 'holdDog'; r.climbing = true;
+    if (t % 10 === 0) sfx.climb((t / 10) & 1);
+  } else if (t < OP.walkEnd) {
+    r.climbing = false; r.x = Math.max(o.homeX, 200 - (t - OP.climbEnd) * 1.6); r.y = surf(G5, r.x); r.pose = 'holdDog';
+    if (t % 8 === 0) sfx.thud();
+  } else if (t < OP.tossEnd) {
+    if (t === OP.walkEnd) { st.dogHeld = false; st.dogFly = 0; sfx.boing(); }
+    st.dogFly = (t - OP.walkEnd) / 40; r.pose = 'throw';
+  } else if (t < OP.stompEnd) {
+    st.dogFly = null; r.pose = 'pound';
+    if ((t - OP.tossEnd) % 22 === 0) { sfx.stomp(); st.shake = 10; }
+  } else r.pose = 'idle';
+  if (t >= OP.end) startIntro();
+}
+
+/* ---- stage-end cutscene: Boltz jets over, snatches Sparky and blasts off to the next stage ---- */
+function updateEscape() {
+  const t = game.t, r = st.robot, d = st.dog;
+  if (t < 70) { r.pose = 'pound'; return; }
+  if (t === 70) { r.jet = true; r.sx = r.x; r.sy = r.y; sfx.jet(); }
+  if (t <= 115) {
+    const k = (t - 70) / 45, e = k < 0.5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2;
+    r.x = r.sx + (d.x - r.sx) * e; r.y = r.sy + (d.y - 12 - r.sy) * e - Math.sin(k * Math.PI) * 8; r.pose = 'fall';
+  } else {
+    if (!st.dogCarried) { st.dogCarried = true; sfx.boing(); }
+    r.vy = (r.vy || 0) + 0.12; r.y -= 0.8 + r.vy; r.pose = 'fall';
+    if (t % 12 === 0 && r.y > -40) sfx.thud();
+  }
+}
 function addScore(n, x, y) {
   game.score += n;
   if (game.score > game.hi) game.hi = game.score;
@@ -487,12 +578,13 @@ function addScore(n, x, y) {
 }
 function killPlayer() {
   if (game.state !== 'play') return;
-  game.state = 'dying'; pl.state = 'dead'; pl.deadT = 0; sfx.die();
+  game.state = 'dying'; pl.state = 'dead'; pl.deadT = 0; sfx.hit(); st.shake = 8;   // freeze, then spin + jingle
   try { if (navigator.vibrate && (!navigator.userActivation || navigator.userActivation.hasBeenActive)) navigator.vibrate(120); } catch (e) {}
 }
 function stageClear() {
   game.state = 'clear'; game.t = 0; pl.mallet = 0; st.clearBonus = st.bonus;
-  addScore(st.bonus); saveHi(); sfx.clear();
+  addScore(st.bonus); saveHi();
+  if (st.type === 'bolts') sfx.levelClear(); else sfx.clear();
   if (st.type === 'bolts') {
     st.robot.falling = true; st.robot.vy = 0; st.robot.pose = 'fall';
     pl.x = st.dog.x + 16; pl.y = 72; pl.state = 'walk'; pl.dir = -1; pl.anim = 0;
@@ -513,7 +605,7 @@ const keyMap = { ArrowLeft: 'left', KeyA: 'left', ArrowRight: 'right', KeyD: 'ri
                  ArrowDown: 'down', KeyS: 'down', Space: 'jump', KeyZ: 'jump', KeyX: 'jump', KeyK: 'jump' };
 function onStart() {
   unlockAudio();
-  if (game.state === 'title' || game.state === 'over') startQueued = true;
+  if (game.state === 'title' || game.state === 'over' || game.state === 'opening' || game.state === 'intro') startQueued = true;
   else if (game.state === 'play' || game.state === 'paused') togglePause();
 }
 function toggleMute() {
@@ -609,7 +701,7 @@ function updatePlayer() {
     const l = p.ladder; let moved = false;
     if (K('up')) { p.y -= CLIMB; moved = true; if (p.y <= l.top) { p.y = l.top; p.state = 'walk'; p.ground = support(p.x, p.y, 3); } }
     else if (K('down')) { p.y += CLIMB; moved = true; if (p.y >= l.bottom) { p.y = l.bottom; p.state = 'walk'; p.ground = support(p.x, p.y, 3); } }
-    if (moved) { p.anim++; if (p.anim % 10 === 0) sfx.climb(); }
+    if (moved) { p.anim++; if (p.anim % 8 === 0) sfx.climb((p.anim >> 3) & 1); }
     if (p.state === 'walk') p.anim = 0;
     return;
   }
@@ -639,7 +731,7 @@ function updatePlayer() {
     p.x = nx;
     if (s) { p.ground = s; p.y = surf(s, p.x); }
     else { p.state = 'air'; p.vy = 0; p.jvx = 0; p.peak = p.y; p.jumped = false; p.ground = null; p.airT = 0; p.offDir = h; }
-    if (h) { p.anim++; if (p.anim % 9 === 0) sfx.step(); } else p.anim = 0;
+    if (h) { p.anim++; if (p.anim % 8 === 1) sfx.step((p.anim >> 3) & 1); } else p.anim = 0;
     return;
   }
 
@@ -650,7 +742,7 @@ function updatePlayer() {
       jumpBuf = 0; p.vy = JUMP_V; p.jvx = (h || p.offDir || 0) * WALK;
       p.peak = p.y; p.jumped = true; p.scored = new Set(); sfx.jump(); return;
     }
-    p.vy = Math.min(p.vy + GRAV, MAXFALL);
+    p.vy = Math.min(p.vy + (p.jumped ? JUMP_G : GRAV), MAXFALL);
     p.x = clamp(p.x + p.jvx, 4, W - 4);
     const ny = p.y + p.vy;
     if (p.vy > 0) {
@@ -705,7 +797,10 @@ function updateDrum(d) {
   if (d.state === 'fall') {
     d.vy = Math.min(d.vy + GRAV, MAXFALL); d.x += d.dir * 0.5;
     const ny = d.y + d.vy, g = d.vy > 0 ? landing(d.x, d.y, ny, true) : null;
-    if (g) { d.y = surf(g, d.x); d.ground = g; d.state = 'roll'; d.dir = g.down || -d.dir; d.lastL = null; sfx.thud(); }
+    if (g && !d.hopped && d.vy > 1) {
+      // drums bounce once when they hit the girder below, then roll on
+      d.y = surf(g, d.x); d.vy = -1.0; d.hopped = true; d.dir = g.down || -d.dir; sfx.thud();
+    } else if (g) { d.y = surf(g, d.x); d.ground = g; d.state = 'roll'; d.dir = g.down || -d.dir; d.lastL = null; }
     else d.y = ny;
     if (d.y > H + 12) d.dead = true;
     return;
@@ -713,7 +808,7 @@ function updateDrum(d) {
   const px = d.x;
   d.x += d.dir * diff.drumSpeed; d.rot += d.dir * diff.drumSpeed;
   const g = support(d.x, d.y, 3, true);
-  if (!g) { d.state = 'fall'; d.vy = 0; return; }
+  if (!g) { d.state = 'fall'; d.vy = 0; d.hopped = false; return; }
   d.ground = g; d.y = surf(g, d.x);
   if (st.type === 'ramps' && g === st.plats[0] && d.x <= 22) { d.dead = true; furnaceHit(); return; }
   if (d.lastL && Math.abs(d.x - d.lastL.x) > 8) d.lastL = null;
@@ -851,6 +946,7 @@ function spawners() {
 
 function smash(e) {
   st.fx.push({ type: 'smash', x: e.x, y: e.y - 5, t: 0 });
+  st.freeze = 6; st.shake = 4;
   addScore(e.type === 'spark' ? 500 : 300, e.x, e.y - 16); sfx.smash();
 }
 
@@ -942,13 +1038,20 @@ function step() {
     case 'title':
       if (jumpBuf > 0 || startQueued) { jumpBuf = 0; startQueued = false; newGame(); }
       break;
+    case 'opening':
+      updateOpening();
+      if (game.state === 'opening' && game.t > 30 && (jumpBuf > 0 || startQueued)) { jumpBuf = 0; startQueued = false; startIntro(); }
+      break;
     case 'intro':
       if (game.t >= 130 || (game.t > 40 && (jumpBuf > 0 || startQueued))) { jumpBuf = 0; startQueued = false; game.state = 'play'; game.t = 0; }
       break;
-    case 'play': updatePlay(); break;
+    case 'play':
+      if (st.freeze > 0) { st.freeze--; break; }      // tiny hit-pause after a smash
+      updatePlay(); break;
     case 'dying':
       pl.deadT++; st.frame++; updateFx();
-      if (pl.deadT >= 140) {
+      if (pl.deadT === 32) sfx.die();
+      if (pl.deadT >= 160) {
         game.lives--;
         if (game.lives <= 0) { game.state = 'over'; game.t = 0; game.newHi = game.score > game.hiAtStart; saveHi(); sfx.over(); }
         else startIntro();
@@ -959,9 +1062,10 @@ function step() {
       const r = st.robot;
       if (r.falling && !r.landed) {
         r.vy += 0.12; r.y += r.vy;
-        if (r.y >= 248) { r.y = 248; r.landed = true; sfx.thud(); }
+        if (r.y >= 248) { r.y = 248; r.landed = true; sfx.stomp(); st.shake = 14; }
       }
-      if (game.t >= 200) {
+      if (st.type !== 'bolts') updateEscape();
+      if (game.t >= (st.type === 'bolts' ? 220 : 205)) {
         game.stageIdx++;
         if (game.stageIdx >= stageList(game.level).length) { game.level++; game.stageIdx = 0; }
         startIntro();
@@ -974,6 +1078,7 @@ function step() {
   }
   startQueued = false;
   if (jumpBuf > 0) jumpBuf--;
+  if (st && st.shake > 0 && game.state !== 'paused') st.shake--;
   let latchEnded = false;
   for (const k in latch) if (latch[k] > 0 && --latch[k] === 0) latchEnded = true;
   if (latchEnded) dpadVis();
@@ -1054,12 +1159,18 @@ function drawStage() {
   const t = st.frame;
   if (st.type === 'lifts') drawShafts();
   if (st.type === 'belts') drawHopper();
+  if (st.op && game.state === 'opening') drawLadder({ x: st.op.x0, top: st.op.yTop, bottom: st.op.yBottom });  // cutscene ladder
   for (const l of st.ladders) drawLadder(l);
   for (const p of st.plats) {
     if (!p.alive) continue;
     if (p.kind === 'belt') drawBelt(p, t); else if (p.kind === 'bolt') drawBolt(p); else drawGirder(p);
   }
-  if (st.type === 'ramps') drawFurnace(t);
+  if (st.type === 'ramps') {
+    drawFurnace(t);
+    // Boltz's stockpile of oil drums beside him
+    const G5 = st.plats[5];
+    for (const [dx, row] of [[10, 0], [21, 0], [15, 1]]) drawDrumAt(dx, surf(G5, dx) - row * 10, 0, true);
+  }
   for (const m of st.mallets) if (!m.taken) drawMalletItem(m);
 }
 
@@ -1083,13 +1194,19 @@ function drawCrate(c) {
 }
 function drawSpark(s, t) {
   if (s.born < 24 && (s.born >> 2) & 1) return;
-  const x = Math.round(s.x), y = Math.round(s.y), f = ((t + s.id * 3) >> 2) & 1;
+  const f = ((t + s.id * 3) >> 2) & 1, x = Math.round(s.x), y = Math.round(s.y - Math.abs(Math.sin((t + s.id * 9) / 7)) * 2);
   R(x - 4, y - 6, 8, 6, '#ff7a00'); R(x - 3, y - 8 - f, 6, 3, '#ffb000'); R(x - 1, y - 11 + f, 3, 3, C.yellow);
   R(x - 3, y - 3, 6, 2, C.yellow); R(x - 2, y - 5, 1, 2, '#1b1b2f'); R(x + 1, y - 5, 1, 2, '#1b1b2f');
 }
 function drawRobot(r, t) {
-  const x = Math.round(r.x), y = Math.round(r.y), pose = r.pose || 'idle';
+  const x = Math.round(r.x), y = Math.round(r.y - (r.climbing ? (t >> 3) & 1 : 0)), pose = r.pose || 'idle';
   const Pc = '#8b5cf6', Pd = '#5b21b6', Pl = '#c4b5fd', G = '#23253a', E = '#ff2d55';
+  if (r.jet) {   // rocket thrusters under the treads
+    for (const fx of [x - 9, x + 5]) {
+      const h = 5 + ((t + fx) >> 1) % 4;
+      R(fx, y, 4, h, '#ff7a00'); R(fx + 1, y, 2, h - 2, C.yellow); R(fx + 1, y + h, 2, 2, '#ff3b6b');
+    }
+  }
   R(x - 12, y - 4, 10, 4, G); R(x + 2, y - 4, 10, 4, G);
   for (let i = 0; i < 10; i += 3) { R(x - 12 + ((i + (t >> 2)) % 10), y - 3, 1, 2, '#4b4f6e'); R(x + 2 + ((i + (t >> 2)) % 10), y - 3, 1, 2, '#4b4f6e'); }
   R(x - 10, y - 9, 6, 5, Pd); R(x + 4, y - 9, 6, 5, Pd);
@@ -1105,10 +1222,11 @@ function drawRobot(r, t) {
   R(x, y - 37, 1, 4, Pl); R(x - 1, y - 39, 3, 2, ((t >> 4) & 1) ? E : '#ffd23f');
   const down = ax => { R(ax, y - 23, 4, 11, Pc); R(ax, y - 12, 4, 3, G); };
   const up = ax => { R(ax, y - 35, 4, 12, Pc); R(ax, y - 38, 4, 3, G); };
-  if (pose === 'hold' || pose === 'holdNut' || pose === 'fall') {
+  if (pose === 'hold' || pose === 'holdNut' || pose === 'fall' || pose === 'holdDog') {
     up(x - 16); up(x + 12);
     if (pose === 'hold') drawDrumAt(x, y - 37, 0, true);
     if (pose === 'holdNut') drawNut(x, y - 38);
+    if (pose === 'holdDog') drawDogAt(x, y - 38, t, false);
   } else if (pose === 'throw') { down(x - 16); R(x + 12, y - 22, 12, 4, Pc); R(x + 24, y - 22, 3, 4, G); }
   else if (pose === 'pound') { if ((t >> 3) & 1) { up(x - 16); down(x + 12); } else { down(x - 16); up(x + 12); } }
   else { down(x - 16); down(x + 12); }
@@ -1125,7 +1243,8 @@ function drawHeldMallet() {
 function drawPlayer() {
   const p = pl;
   if (p.state === 'dead') {
-    const k = p.deadT;
+    const k = p.deadT - 32;                          // everything freezes for a beat first
+    if (k < 0) { spr(HERO.stand, p.x - 6, p.y - 16, p.dir < 0); return; }
     ctx.save(); ctx.translate(Math.round(p.x), Math.round(p.y - 8));
     ctx.rotate((k < 64 ? Math.floor(k / 6) % 4 : 1) * Math.PI / 2);
     ctx.drawImage(HERO.stand.r, -6, -8); ctx.restore();
@@ -1151,10 +1270,15 @@ function drawFx() {
   for (const p of st.pops) txtS(p.txt, Math.round(p.x), Math.round(p.y), C.yellow, 'center');
 }
 function drawActors() {
-  const t = st.frame;
-  drawDogAt(st.dog.x, st.dog.y, t, pl.x > st.dog.x);
+  const t = st.frame, r = st.robot;
+  if (st.dogFly != null) {                          // tossed from Boltz's hands up to the top girder
+    const k = st.dogFly, sx = r.x, sy = r.y - 38;
+    drawDogAt(sx + (st.dog.x - sx) * k, sy + (st.dog.y - sy) * k - Math.sin(k * Math.PI) * 30, t, false);
+  } else if (!st.dogHeld && !st.dogCarried) drawDogAt(st.dog.x, st.dog.y, t, pl.x > st.dog.x);
   if (game.state === 'play' && ((t >> 5) % 3) !== 2) txtS('WOOF!', clamp(st.dog.x, 22, W - 22), st.dog.y - 19, C.white, 'center');
-  drawRobot(st.robot, t);
+  if (game.state === 'opening' && game.t > OP.tossEnd && ((t >> 4) & 1)) txtS('WOOF! WOOF!', clamp(st.dog.x, 46, W - 46), st.dog.y - 19, C.white, 'center');
+  drawRobot(r, t);
+  if (st.dogCarried) drawDogAt(r.x, r.y + 10, t, false);
   st.drums.forEach(d => drawDrumAt(d.x, d.y, d.rot, d.state !== 'roll', d.blue));
   st.crates.forEach(drawCrate);
   st.springs.forEach(s => drawNut(s.x, s.y));
@@ -1170,6 +1294,8 @@ function drawHUD() {
   txt('HI', 88, 2, C.cyan); txt(pad6(Math.max(game.hi, game.score)), 88, 11, C.white);
   if (st) {
     const b = st.bonus, warn = b <= 1000 && ((st.frame >> 4) & 1);
+    const fc = warn ? C.red : '#2f6f8f';
+    R(171, 0, 50, 1, fc); R(171, 20, 50, 1, fc); R(171, 0, 1, 21, fc); R(220, 0, 1, 21, fc);
     txt('BONUS', 216, 2, C.cyan, 'right'); txt(String(b).padStart(4, '0'), 216, 11, warn ? C.red : C.white, 'right');
   }
   for (let i = 0; i < Math.min(game.lives - 1, 6); i++) drawLifeIcon(8 + i * 9, 21);
@@ -1224,11 +1350,20 @@ function drawIntro() {
   if ((game.t >> 4) & 1) txt('GET READY!', 112, 226, C.white, 'center');
 }
 function drawClear() {
-  const d = st.dog, bob = Math.round(Math.sin(st.frame / 6) * 2);
-  spr(HEART, Math.round((d.x + pl.x) / 2) - 3, d.y - 26 + bob, false);
-  frameBox(40, 112, 144, 40);
-  txt(st.type === 'bolts' ? 'LEVEL CLEAR!' : 'NICE CLIMB!', 112, 120, C.girder, 'center');
+  const d = st.dog, bob = Math.round(Math.sin(st.frame / 6) * 2), bolts = st.type === 'bolts';
+  if (bolts || game.t < 70) spr(HEART, Math.round((d.x + pl.x) / 2) - 3, d.y - 26 + bob, false);
+  frameBox(36, 112, 152, 40);
+  if (bolts) txt('LEVEL CLEAR!', 112, 120, C.girder, 'center');
+  else if (game.t < 115) txt('NICE CLIMB!', 112, 120, C.girder, 'center');
+  else txt((game.t >> 3) & 1 ? 'AFTER HIM!' : 'BOLTZ ESCAPED!', 112, 120, C.red, 'center');
   txt('BONUS +' + st.clearBonus, 112, 136, C.white, 'center');
+}
+function drawOpeningText() {
+  if (game.t > OP.tossEnd) {
+    frameBox(36, 128, 152, 40);
+    txt('BOLTZ NABBED SPARKY!', 112, 136, C.white, 'center');
+    if ((game.t >> 4) & 1) txt('GO SAVE HIM!', 112, 152, C.girder, 'center');
+  }
 }
 function drawOver() {
   frameBox(28, 96, 168, 70);
@@ -1247,7 +1382,12 @@ function draw() {
   R(0, 0, W, H, C.bg);
   if (game.state === 'title') { drawTitle(); return; }
   if (game.state === 'intro') { drawIntro(); return; }
+  if (st.shake > 0) {                                 // screen shake for stomps, smashes and crashes
+    const a = st.shake > 6 ? 2 : 1;
+    ctx.setTransform(S, 0, 0, S, (rnd() < 0.5 ? -a : a) * S, (rnd() < 0.5 ? -a : a) * S);
+  }
   drawStars(st.frame); drawStage(); drawActors(); drawHUD();
+  if (game.state === 'opening') drawOpeningText();
   if (game.state === 'paused') drawPaused();
   if (game.state === 'clear') drawClear();
   if (game.state === 'over') drawOver();
@@ -1268,7 +1408,7 @@ addEventListener('resize', fit); fit();
 let last = performance.now(), acc = 0;
 const DT = 1000 / 60;
 function drawSmooth(alpha) {
-  const live = game.state === 'play' || game.state === 'dying' || game.state === 'clear';
+  const live = game.state === 'play' || game.state === 'dying' || game.state === 'clear' || game.state === 'opening';
   if (!live || !st) { draw(); return; }
   const ents = movers(), saved = [];
   for (const e of ents) {
