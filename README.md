@@ -23,7 +23,8 @@ Double-click `index.html` and it opens in your browser.
 | M | Sound on/off |
 
 **Phone controls:** an on-screen D-pad (left), a JUMP button (right), and START / SOUND
-buttons in the middle. Turn the phone sideways for a wider layout.
+buttons in the middle. You don't have to hit the drawn buttons exactly: anywhere on the left
+side steers and anywhere on the right side jumps. Turn the phone sideways for a wider layout.
 
 ## Play it on your phone (GitHub Pages, free)
 
@@ -48,10 +49,17 @@ Each level is a run of stages, and every stage adds a twist:
 | 1 | Ramps → Bolts |
 | 2 | Ramps → Lifts → Bolts |
 | 3 | Ramps → Belts → Lifts → Bolts |
-| 4+ | Ramps → Belts → Ramps → Lifts → Bolts (faster each level) |
+| 4 | Ramps → Belts → Ramps → Lifts → Bolts |
+| 5+ | Ramps → Belts → Ramps → Lifts → Ramps → Bolts |
+
+The bonus timer starts at 5,000 on level 1 and rises by 1,000 per level, up to 8,000 from level 4.
+Difficulty starts at the level number, steps up every 30 seconds you spend on a stage, and tops
+out at level 5's pace.
 
 - **The Ramps:** Boltz rolls oil drums down sloped girders. Drums sometimes drop down ladders.
-  Drums that reach the furnace at the bottom turn into sparks that chase you.
+  Drums that reach the furnace at the bottom turn into sparks that chase you. Each stage opens
+  with a blue drum dropped straight into the furnace. From level 2, some blue "wild" drums
+  bounce diagonally down through the girders and steer toward you.
 - **The Belts:** conveyor belts push you around and carry crates. The middle belt flips direction.
 - **The Lifts:** ride the up and down lifts. Don't ride the up-lift into the motor at the top,
   and watch for the bouncing nuts Boltz throws.
@@ -60,7 +68,7 @@ Each level is a run of stages, and every stage adds a twist:
 
 **Scoring:** jump a drum, crate or nut for 100. Smash a drum or crate with a mallet for 300,
 or a spark for 500. Each bolt is 100. Whatever is left of the bonus timer is added when you
-clear a stage. You get one extra life at 10,000 points.
+clear a stage. You get one extra life at 7,000 points.
 
 **Rules of thumb:** a fall from more than a short hop is fatal. While you hold a mallet you
 can't climb or jump. If the bonus timer reaches zero you lose a life. Your high score is saved

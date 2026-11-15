@@ -39,11 +39,22 @@
     padding: 6px max(12px, env(safe-area-inset-right)) calc(14px + env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
   }
   @media (orientation: portrait) and (pointer: coarse) { #stage { align-items: flex-end; } }
+  /* Big invisible touch zones: the whole left side steers, the whole right side jumps.
+     The drawn D-pad and JUMP button are only visuals, so near-misses still count. */
+  .zone { flex: 1 0 auto; align-self: stretch; display: flex; align-items: center; touch-action: none; }
+  #dzone { justify-content: flex-start; }
+  #jzone { justify-content: flex-end; }
+  #dpad, #jump { pointer-events: none; }
   #dpad {
     position: relative; width: var(--dp); height: var(--dp); border-radius: 50%; flex: none;
     background: radial-gradient(circle at 50% 40%, #232c52, #111733 70%);
-    box-shadow: inset 0 0 0 3px #2f3a6b, 0 6px 0 #05070f; touch-action: none;
+    box-shadow: inset 0 0 0 3px #2f3a6b, 0 6px 0 #05070f;
   }
+  #dpad .knob {
+    position: absolute; left: 50%; top: 50%; width: 30%; height: 30%; margin: -15% 0 0 -15%; border-radius: 50%;
+    background: rgba(255,176,0,.22); box-shadow: 0 0 0 2px rgba(255,176,0,.55); opacity: 0; transition: opacity .08s;
+  }
+  #dpad.on .knob { opacity: 1; }
   #dpad .a { position: absolute; width: 0; height: 0; border-style: solid; opacity: .75; }
   #dpad .up    { left: 50%; top: 10%;    transform: translateX(-50%); border-width: 0 17px 24px 17px; border-color: transparent transparent #b8c7dd transparent; }
   #dpad .down  { left: 50%; bottom: 10%; transform: translateX(-50%); border-width: 24px 17px 0 17px; border-color: #b8c7dd transparent transparent transparent; }
@@ -59,10 +70,10 @@
     width: var(--jb); height: var(--jb); border-radius: 50%; flex: none;
     background: radial-gradient(circle at 40% 35%, #ffd36b, #ffb000 60%, #d98a00);
     color: #3a1d00; font-size: 12px; display: flex; align-items: center; justify-content: center;
-    box-shadow: 0 7px 0 #8a4b00, inset 0 0 0 3px #3a1d00; touch-action: none;
+    box-shadow: 0 7px 0 #8a4b00, inset 0 0 0 3px #3a1d00;
   }
-  #jump.on { transform: translateY(5px); box-shadow: 0 2px 0 #8a4b00, inset 0 0 0 3px #3a1d00; }
-  #mid { display: flex; flex-direction: column; gap: 14px; align-items: center; }
+  #jump.on { transform: translateY(5px); box-shadow: 0 2px 0 #8a4b00, inset 0 0 0 3px #3a1d00; filter: brightness(1.12); }
+  #mid { display: flex; flex-direction: column; gap: 14px; align-items: center; position: relative; z-index: 2; }
   #mid button {
     font: inherit; font-size: 8px; color: #b8c7dd; background: #141a36; border: 2px solid #2f3a6b; white-space: nowrap;
     border-radius: 16px; padding: 11px 6px; min-width: 78px; touch-action: manipulation; cursor: pointer;
@@ -75,8 +86,10 @@
   }
   @media (orientation: landscape) and (pointer: coarse) {
     #pad { position: absolute; inset: 0; height: auto; padding: 0; pointer-events: none; }
-    #dpad { position: absolute; left: calc(20px + env(safe-area-inset-left)); bottom: calc(20px + env(safe-area-inset-bottom)); pointer-events: auto; }
-    #jump { position: absolute; right: calc(24px + env(safe-area-inset-right)); bottom: calc(36px + env(safe-area-inset-bottom)); pointer-events: auto; }
+    #dzone { position: absolute; left: 0; bottom: 0; width: min(42vw, 300px); height: 85%; align-items: flex-end; pointer-events: auto;
+             padding: 0 0 calc(20px + env(safe-area-inset-bottom)) calc(20px + env(safe-area-inset-left)); }
+    #jzone { position: absolute; right: 0; bottom: 0; width: min(36vw, 260px); height: 72%; align-items: flex-end; pointer-events: auto;
+             padding: 0 calc(24px + env(safe-area-inset-right)) calc(36px + env(safe-area-inset-bottom)) 0; }
     #mid  { position: absolute; right: calc(16px + env(safe-area-inset-right)); top: calc(14px + env(safe-area-inset-top)); pointer-events: auto; }
   }
 </style>
@@ -86,9 +99,9 @@
   <div id="stage"><canvas id="c" aria-label="BOLTZ! game screen"></canvas></div>
   <div id="hint"><b>← →</b> move &nbsp;·&nbsp; <b>↑ ↓</b> climb &nbsp;·&nbsp; <b>Space</b> jump &nbsp;·&nbsp; <b>Enter</b> start &nbsp;·&nbsp; <b>P</b> pause &nbsp;·&nbsp; <b>M</b> sound</div>
   <div id="pad">
-    <div id="dpad" aria-label="Direction pad"><span class="a up"></span><span class="a down"></span><span class="a left"></span><span class="a right"></span><span class="hub"></span></div>
+    <div id="dzone" class="zone" aria-label="Direction pad"><div id="dpad"><span class="a up"></span><span class="a down"></span><span class="a left"></span><span class="a right"></span><span class="hub"></span><span class="knob"></span></div></div>
     <div id="mid"><button id="bStart" type="button">START</button><button id="bMute" type="button">SOUND ON</button></div>
-    <div id="jump" aria-label="Jump">JUMP</div>
+    <div id="jzone" class="zone" aria-label="Jump"><div id="jump">JUMP</div></div>
   </div>
 </div>
 <script>
@@ -293,12 +306,17 @@ function stageList(level) {
   if (level === 1) return ['ramps', 'bolts'];
   if (level === 2) return ['ramps', 'lifts', 'bolts'];
   if (level === 3) return ['ramps', 'belts', 'lifts', 'bolts'];
-  return ['ramps', 'belts', 'ramps', 'lifts', 'bolts'];
+  if (level === 4) return ['ramps', 'belts', 'ramps', 'lifts', 'bolts'];
+  return ['ramps', 'belts', 'ramps', 'lifts', 'ramps', 'bolts'];   // level 5 and up: 6 stages
 }
-function makeDiff() {
-  const d = Math.min(game.level, 8);
+// Difficulty works like the classic arcade climbers: it starts at the level number, creeps up
+// the longer you stay on a stage (every 30 s), and tops out at 5. Bonus timer keeps the pressure on.
+const MAX_D = 5;
+function makeDiff(bump) {
+  const d = Math.min(Math.min(game.level, MAX_D) + (bump || 0), MAX_D);
   return {
     d,
+    wildP: [0, 0, 0.1, 0.15, 0.2, 0.25][d],
     throwEvery: Math.max(64, 150 - d * 11),
     drumSpeed: Math.min(1.6, 0.9 + d * 0.08),
     ladderP: 0.18 + d * 0.04,
@@ -465,7 +483,7 @@ function addScore(n, x, y) {
   game.score += n;
   if (game.score > game.hi) game.hi = game.score;
   if (x != null) st.pops.push({ x, y, txt: String(n), t: 0 });
-  if (!game.extra && game.score >= 10000) { game.extra = true; game.lives++; sfx.life(); }
+  if (!game.extra && game.score >= 7000) { game.extra = true; game.lives++; sfx.life(); }
 }
 function killPlayer() {
   if (game.state !== 'play') return;
@@ -488,6 +506,9 @@ function togglePause() {
 /* ---------------- input ---------------- */
 const keys = { left: false, right: false, up: false, down: false, jump: false };
 let jumpBuf = 0, startQueued = false;
+const JUMP_BUF = 12, LATCH = 5, COYOTE = 6;       // frames (at 60 per second)
+const latch = { left: 0, right: 0, up: 0, down: 0 };
+const K = k => keys[k] || latch[k] > 0;           // "is this direction held (or just tapped)?"
 const keyMap = { ArrowLeft: 'left', KeyA: 'left', ArrowRight: 'right', KeyD: 'right', ArrowUp: 'up', KeyW: 'up',
                  ArrowDown: 'down', KeyS: 'down', Space: 'jump', KeyZ: 'jump', KeyX: 'jump', KeyK: 'jump' };
 function onStart() {
@@ -505,42 +526,71 @@ document.getElementById('bMute').textContent = muted ? 'SOUND OFF' : 'SOUND ON';
 addEventListener('keydown', e => {
   unlockAudio();
   const k = keyMap[e.code];
-  if (k) { if (k === 'jump' && !keys.jump) jumpBuf = 8; keys[k] = true; e.preventDefault(); }
+  if (k) { if (k === 'jump' && !keys.jump) jumpBuf = JUMP_BUF; keys[k] = true; e.preventDefault(); }
   if (e.code === 'Enter') { onStart(); e.preventDefault(); }
   if (e.code === 'KeyP' || e.code === 'Escape') togglePause();
   if (e.code === 'KeyM') toggleMute();
 });
 addEventListener('keyup', e => { const k = keyMap[e.code]; if (k) keys[k] = false; });
-addEventListener('blur', () => { for (const k in keys) keys[k] = false; });
+addEventListener('blur', () => { for (const k in keys) keys[k] = false; for (const k in latch) latch[k] = 0; });
 document.addEventListener('visibilitychange', () => { if (document.hidden && game.state === 'play') togglePause(); });
 addEventListener('contextmenu', e => e.preventDefault());
 
-const dpad = document.getElementById('dpad');
+/* ---- touch: D-pad zone (left) ----
+   - the whole left zone listens, direction is measured from the drawn pad's centre
+   - analog-style sectors: horizontal stays on until the thumb is 70° off the axis (smooth walking),
+     vertical needs the thumb within 50° of up/down (so walking past a ladder doesn't grab it)
+   - a newly pressed direction is held for at least LATCH frames, so a quick tap is never lost */
+const dzone = document.getElementById('dzone'), dpad = document.getElementById('dpad'), knob = dpad.querySelector('.knob');
 let dpadId = null;
 function dpadSet(e) {
   const r = dpad.getBoundingClientRect();
-  const dx = e.clientX - (r.left + r.width / 2), dy = e.clientY - (r.top + r.height / 2), t = r.width * 0.12;
-  const ax = Math.abs(dx), ay = Math.abs(dy);
-  const horiz = ax > t && ax > ay * 0.6, vert = ay > t && ay > ax * 0.6;
-  keys.left = horiz && dx < 0; keys.right = horiz && dx > 0; keys.up = vert && dy < 0; keys.down = vert && dy > 0;
+  const dx = e.clientX - (r.left + r.width / 2), dy = e.clientY - (r.top + r.height / 2);
+  const dead = Math.max(7, r.width * 0.07), mag = Math.hypot(dx, dy);
+  let L = false, Rt = false, U = false, D = false;
+  if (mag > dead) {
+    const a = Math.atan2(dy, dx) * 180 / Math.PI;     // 0 = right, 90 = down, -90 = up
+    Rt = Math.abs(a) < 70; L = Math.abs(a) > 110;
+    D = a > 40 && a < 140; U = a < -40 && a > -140;
+  }
+  setDir('left', L); setDir('right', Rt); setDir('up', U); setDir('down', D);
+  const k = Math.min(1, mag / (r.width * 0.36)), kx = mag ? dx / mag * k * r.width * 0.3 : 0, ky = mag ? dy / mag * k * r.width * 0.3 : 0;
+  knob.style.transform = 'translate(' + kx.toFixed(1) + 'px,' + ky.toFixed(1) + 'px)';
   dpadVis();
 }
+function setDir(k, on) { if (on && !keys[k]) latch[k] = LATCH; keys[k] = on; }
 function dpadVis() {
-  dpad.classList.toggle('u', keys.up); dpad.classList.toggle('d', keys.down);
-  dpad.classList.toggle('l', keys.left); dpad.classList.toggle('r', keys.right);
+  dpad.classList.toggle('u', K('up')); dpad.classList.toggle('d', K('down'));
+  dpad.classList.toggle('l', K('left')); dpad.classList.toggle('r', K('right'));
+  dpad.classList.toggle('on', dpadId !== null);
 }
-dpad.addEventListener('pointerdown', e => { unlockAudio(); dpadId = e.pointerId; try { dpad.setPointerCapture(e.pointerId); } catch (_) {} dpadSet(e); e.preventDefault(); });
-dpad.addEventListener('pointermove', e => { if (e.pointerId === dpadId) dpadSet(e); });
-['pointerup', 'pointercancel', 'lostpointercapture'].forEach(ev => dpad.addEventListener(ev, e => {
-  if (e.pointerId === dpadId) { dpadId = null; keys.left = keys.right = keys.up = keys.down = false; dpadVis(); }
-}));
-const jb = document.getElementById('jump');
-jb.addEventListener('pointerdown', e => {
-  unlockAudio(); e.preventDefault(); try { jb.setPointerCapture(e.pointerId); } catch (_) {}
-  keys.jump = true; jumpBuf = 8; jb.classList.add('on');
+function dpadRelease() {
+  dpadId = null; keys.left = keys.right = keys.up = keys.down = false;
+  knob.style.transform = ''; dpadVis();
+}
+dzone.addEventListener('pointerdown', e => {
+  unlockAudio(); e.preventDefault();
+  dpadId = e.pointerId;                       // a new touch always takes over (no "stuck" pad)
+  try { dzone.setPointerCapture(e.pointerId); } catch (_) {}
+  dpadSet(e);
+});
+dzone.addEventListener('pointermove', e => { if (e.pointerId === dpadId) dpadSet(e); });
+['pointerup', 'pointercancel', 'lostpointercapture'].forEach(ev => dzone.addEventListener(ev, e => { if (e.pointerId === dpadId) dpadRelease(); }));
+
+/* ---- touch: jump zone (right) — fires on touch-down, buffered so an early tap still jumps ---- */
+const jzone = document.getElementById('jzone'), jb = document.getElementById('jump');
+const jumpIds = new Set();
+jzone.addEventListener('pointerdown', e => {
+  unlockAudio(); e.preventDefault();
+  try { jzone.setPointerCapture(e.pointerId); } catch (_) {}
+  jumpIds.add(e.pointerId); keys.jump = true; jumpBuf = JUMP_BUF; jb.classList.add('on');
+  try { if (navigator.vibrate && navigator.userActivation && navigator.userActivation.hasBeenActive) navigator.vibrate(8); } catch (_) {}
   if (game.state === 'title' || game.state === 'over') startQueued = true;
 });
-['pointerup', 'pointercancel', 'lostpointercapture'].forEach(ev => jb.addEventListener(ev, () => { keys.jump = false; jb.classList.remove('on'); }));
+['pointerup', 'pointercancel', 'lostpointercapture'].forEach(ev => jzone.addEventListener(ev, e => {
+  jumpIds.delete(e.pointerId);
+  if (!jumpIds.size) { keys.jump = false; jb.classList.remove('on'); }
+}));
 document.getElementById('bStart').addEventListener('click', onStart);
 document.getElementById('bMute').addEventListener('click', toggleMute);
 cv.addEventListener('pointerdown', () => {
@@ -553,12 +603,12 @@ cv.addEventListener('pointerdown', () => {
 function updatePlayer() {
   const p = pl;
   if (p.mallet > 0) p.mallet--;
-  const h = (keys.right ? 1 : 0) - (keys.left ? 1 : 0);
+  const h = (K('right') ? 1 : 0) - (K('left') ? 1 : 0);
 
   if (p.state === 'climb') {
     const l = p.ladder; let moved = false;
-    if (keys.up) { p.y -= CLIMB; moved = true; if (p.y <= l.top) { p.y = l.top; p.state = 'walk'; p.ground = support(p.x, p.y, 3); } }
-    else if (keys.down) { p.y += CLIMB; moved = true; if (p.y >= l.bottom) { p.y = l.bottom; p.state = 'walk'; p.ground = support(p.x, p.y, 3); } }
+    if (K('up')) { p.y -= CLIMB; moved = true; if (p.y <= l.top) { p.y = l.top; p.state = 'walk'; p.ground = support(p.x, p.y, 3); } }
+    else if (K('down')) { p.y += CLIMB; moved = true; if (p.y >= l.bottom) { p.y = l.bottom; p.state = 'walk'; p.ground = support(p.x, p.y, 3); } }
     if (moved) { p.anim++; if (p.anim % 10 === 0) sfx.climb(); }
     if (p.state === 'walk') p.anim = 0;
     return;
@@ -566,14 +616,17 @@ function updatePlayer() {
 
   if (p.state === 'walk') {
     if (!p.mallet) {
-      if (keys.up) {
-        const l = st.ladders.find(l => Math.abs(p.x - l.x) <= 4 && Math.abs(p.y - l.bottom) <= 3);
-        if (l) { p.state = 'climb'; p.ladder = l; p.x = l.x; p.anim = 0; return; }
-      }
-      if (keys.down) {
-        const l = st.ladders.find(l => Math.abs(p.x - l.x) <= 4 && Math.abs(p.y - l.top) <= 3);
-        if (l) { p.state = 'climb'; p.ladder = l; p.x = l.x; p.y += 1; p.anim = 0; return; }
-      }
+      // generous ladder grab: within 6px, pick the nearest ladder and snap onto it
+      const near = (yKey) => {
+        let best = null, bd = 7;
+        for (const l of st.ladders) {
+          const d = Math.abs(p.x - l.x);
+          if (d < bd && Math.abs(p.y - l[yKey]) <= 3) { bd = d; best = l; }
+        }
+        return best;
+      };
+      if (K('up')) { const l = near('bottom'); if (l) { p.state = 'climb'; p.ladder = l; p.x = l.x; p.anim = 0; return; } }
+      if (K('down')) { const l = near('top'); if (l) { p.state = 'climb'; p.ladder = l; p.x = l.x; p.y += 1; p.anim = 0; return; } }
     }
     if (h) p.dir = h;
     const g = p.ground, belt = g && g.kind === 'belt' ? g.belt : 0;
@@ -585,12 +638,18 @@ function updatePlayer() {
     const s = stepSupport(nx, p.y);
     p.x = nx;
     if (s) { p.ground = s; p.y = surf(s, p.x); }
-    else { p.state = 'air'; p.vy = 0; p.jvx = 0; p.peak = p.y; p.jumped = false; p.ground = null; }
+    else { p.state = 'air'; p.vy = 0; p.jvx = 0; p.peak = p.y; p.jumped = false; p.ground = null; p.airT = 0; p.offDir = h; }
     if (h) { p.anim++; if (p.anim % 9 === 0) sfx.step(); } else p.anim = 0;
     return;
   }
 
   if (p.state === 'air') {
+    p.airT = (p.airT || 0) + 1;
+    // "coyote time": a jump pressed just after walking off an edge still counts
+    if (jumpBuf > 0 && !p.jumped && !p.mallet && p.airT <= COYOTE) {
+      jumpBuf = 0; p.vy = JUMP_V; p.jvx = (h || p.offDir || 0) * WALK;
+      p.peak = p.y; p.jumped = true; p.scored = new Set(); sfx.jump(); return;
+    }
     p.vy = Math.min(p.vy + GRAV, MAXFALL);
     p.x = clamp(p.x + p.jvx, 4, W - 4);
     const ny = p.y + p.vy;
@@ -612,6 +671,29 @@ function furnaceHit() {
 }
 
 function updateDrum(d) {
+  if (d.state === 'wild') {
+    d.vy = Math.min(d.vy + GRAV * 0.8, 2.6);
+    d.x += d.vx; d.rot += d.vx;
+    if (d.x < 6 || d.x > W - 6) { d.vx = -d.vx; d.x = clamp(d.x, 6, W - 6); }
+    const ny = d.y + d.vy, G0 = st.plats[0];
+    if (d.vy > 0) {
+      let hp = null, hs = 1e9;
+      for (const p of st.plats) {
+        if (!p.alive || d.x + FOOT < p.x1 || d.x - FOOT > p.x2) continue;
+        if (d.straight && p !== G0) continue;           // first drum drops straight through
+        const s = surf(p, d.x);
+        if (s > d.bounceY + 2 && s >= d.y - 0.5 && s <= ny + 0.5 && s < hs) { hs = s; hp = p; }
+      }
+      if (hp === G0) { d.y = hs; d.state = 'roll'; d.ground = G0; d.dir = -1; d.lastL = null; sfx.thud(); return; }
+      if (hp) {
+        d.y = hs; d.bounceY = hs; d.vy = -1.1; sfx.thud();
+        d.vx = Math.abs(d.vx) * (pl.x >= d.x ? 1 : -1);  // steer toward the player
+        return;
+      }
+    }
+    d.y = ny; if (d.y > H + 12) d.dead = true;
+    return;
+  }
   if (d.state === 'ladder') {
     d.y += 1.2;
     if (d.y >= d.ladder.bottom) {
@@ -716,8 +798,20 @@ function updateRobot() {
     else r.pose = (Math.floor(st.frame / 20) % 6 === 0) ? 'pound' : 'idle';
     if (r.t >= diff.throwEvery) {
       r.t = 0; r.throwAnim = 16; sfx.throw();
-      const g = st.plats[5], x = r.x + 20;
-      st.drums.push({ id: ++uid, type: 'drum', x, y: surf(g, x), dir: 1, state: 'roll', ground: g, rot: 0, vy: 0, lastL: null });
+      const g = st.plats[5];
+      if (!st.firstDrum) {
+        // the stage's first drum is a blue one dropped straight down to light the furnace
+        st.firstDrum = true;
+        const x = 18;
+        st.drums.push({ id: ++uid, type: 'drum', blue: true, straight: true, x, y: surf(g, x), dir: -1, state: 'wild', vx: 0, vy: 0, bounceY: surf(g, x), rot: 0, lastL: null });
+      } else if (rnd() < diff.wildP) {
+        // a "wild" blue drum: bounces diagonally down through the girders, steering toward you
+        const x = r.x + 20;
+        st.drums.push({ id: ++uid, type: 'drum', blue: true, x, y: surf(g, x), dir: 1, state: 'wild', vx: 0.6 + rnd() * 0.5, vy: -0.8, bounceY: surf(g, x), rot: 0, lastL: null });
+      } else {
+        const x = r.x + 20;
+        st.drums.push({ id: ++uid, type: 'drum', x, y: surf(g, x), dir: 1, state: 'roll', ground: g, rot: 0, vy: 0, lastL: null });
+      }
     }
   } else if (st.type === 'lifts') {
     r.t++;
@@ -832,6 +926,7 @@ function updatePlay() {
   checkHits(); if (game.state !== 'play') return;
   if (st.goal && pl.state === 'walk' && pl.ground === st.goal) { stageClear(); return; }
 
+  if (st.frame % 1800 === 0 && diff.d < MAX_D) { st.bump = (st.bump || 0) + 1; diff = makeDiff(st.bump); }
   if (st.frame % 120 === 0) {
     st.bonus = Math.max(0, st.bonus - 100);
     if (st.bonus === 0) { killPlayer(); return; }
@@ -879,6 +974,21 @@ function step() {
   }
   startQueued = false;
   if (jumpBuf > 0) jumpBuf--;
+  let latchEnded = false;
+  for (const k in latch) if (latch[k] > 0 && --latch[k] === 0) latchEnded = true;
+  if (latchEnded) dpadVis();
+}
+
+/* Remember where everything was before this step, so frames between steps can be drawn
+   part-way (smooth motion on 90/120Hz phone screens). */
+function movers() {
+  if (!st) return [];
+  const a = [pl, st.robot].concat(st.drums, st.sparks, st.crates, st.springs);
+  return a;
+}
+function snapPrev() {
+  for (const e of movers()) { e.px = e.x; e.py = e.y; }
+  if (st && st.lifts) for (const l of st.lifts) l.py = l.y1;
 }
 
 /* ---------------- drawing ---------------- */
@@ -953,9 +1063,9 @@ function drawStage() {
   for (const m of st.mallets) if (!m.taken) drawMalletItem(m);
 }
 
-function drawDrumAt(x, y, rot, front) {
+function drawDrumAt(x, y, rot, front, blue) {
   x = Math.round(x); y = Math.round(y);
-  const G = '#2fbf5b', Gd = '#166534', Gl = '#86efac';
+  const G = blue ? '#38bdf8' : '#2fbf5b', Gd = blue ? '#0c4a6e' : '#166534', Gl = blue ? '#e0f2fe' : '#86efac';
   R(x - 3, y - 10, 6, 1, G); R(x - 4, y - 9, 8, 1, G); R(x - 5, y - 8, 10, 6, G); R(x - 4, y - 2, 8, 1, G); R(x - 3, y - 1, 6, 1, G);
   if (front) { R(x - 5, y - 7, 10, 1, Gd); R(x - 5, y - 4, 10, 1, Gd); }
   else { const k = ((Math.floor(rot) % 10) + 10) % 10; for (const b of [k, (k + 5) % 10]) R(x - 5 + b, y - 8, 1, 6, Gd); }
@@ -1045,7 +1155,7 @@ function drawActors() {
   drawDogAt(st.dog.x, st.dog.y, t, pl.x > st.dog.x);
   if (game.state === 'play' && ((t >> 5) % 3) !== 2) txtS('WOOF!', clamp(st.dog.x, 22, W - 22), st.dog.y - 19, C.white, 'center');
   drawRobot(st.robot, t);
-  st.drums.forEach(d => drawDrumAt(d.x, d.y, d.rot, d.state !== 'roll'));
+  st.drums.forEach(d => drawDrumAt(d.x, d.y, d.rot, d.state !== 'roll', d.blue));
   st.crates.forEach(drawCrate);
   st.springs.forEach(s => drawNut(s.x, s.y));
   st.sparks.forEach(s => drawSpark(s, t));
@@ -1157,10 +1267,26 @@ addEventListener('resize', fit); fit();
 
 let last = performance.now(), acc = 0;
 const DT = 1000 / 60;
+function drawSmooth(alpha) {
+  const live = game.state === 'play' || game.state === 'dying' || game.state === 'clear';
+  if (!live || !st) { draw(); return; }
+  const ents = movers(), saved = [];
+  for (const e of ents) {
+    saved.push(e.x, e.y);
+    if (e.px != null && Math.abs(e.x - e.px) < 12 && Math.abs(e.y - e.py) < 12) {
+      e.x = e.px + (e.x - e.px) * alpha; e.y = e.py + (e.y - e.py) * alpha;
+    }
+  }
+  const lifts = st.lifts || [], ly = lifts.map(l => l.y1);
+  for (const l of lifts) if (l.py != null && Math.abs(l.y1 - l.py) < 12) { l.y1 = l.y2 = l.py + (l.y1 - l.py) * alpha; }
+  draw();
+  ents.forEach((e, i) => { e.x = saved[i * 2]; e.y = saved[i * 2 + 1]; });
+  lifts.forEach((l, i) => { l.y1 = l.y2 = ly[i]; });
+}
 function loop(now) {
   acc += Math.min(100, now - last); last = now;
-  while (acc >= DT) { step(); acc -= DT; }
-  draw();
+  while (acc >= DT) { snapPrev(); step(); acc -= DT; }
+  drawSmooth(acc / DT);
   requestAnimationFrame(loop);
 }
 requestAnimationFrame(loop);
