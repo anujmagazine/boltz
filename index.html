@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-<meta name="theme-color" content="#04060f">
+<meta name="theme-color" content="#ff8a26">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -14,77 +14,114 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
 <style>
-  :root { color-scheme: dark; }
+  /* ---- the "pocket arcade": an orange handheld console around the game screen ---- */
+  :root {
+    color-scheme: dark;
+    --shell-hi: #ffa64d; --shell: #ff801c; --shell-lo: #e46000;   /* orange plastic */
+    --ink: #3a1500; --ink-soft: #6b2c00;                          /* printed labels */
+    --bezel: #2a2420; --key: #2b2520; --key-hi: #3d352e;          /* dark screen surround + keys */
+  }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   html, body {
-    margin: 0; height: 100%; background: #04060f; overflow: hidden;
+    margin: 0; height: 100%; overflow: hidden;
     overscroll-behavior: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
   }
-  body { touch-action: none; font-family: "Press Start 2P", ui-monospace, Menlo, Consolas, monospace; }
+  body {
+    touch-action: none; font-family: "Press Start 2P", ui-monospace, Menlo, Consolas, monospace;
+    background: radial-gradient(ellipse at 50% 25%, #3b2413, #120904 70%);
+  }
   #app {
     position: fixed; inset: 0; display: flex; flex-direction: column;
     padding: env(safe-area-inset-top) env(safe-area-inset-right) 0 env(safe-area-inset-left);
+    background: linear-gradient(165deg, var(--shell-hi) 0%, var(--shell) 40%, var(--shell-lo) 100%);
+    box-shadow: inset 0 2px 0 rgba(255,255,255,.45), inset 0 -6px 0 rgba(0,0,0,.14);
   }
-  #stage { flex: 1; min-height: 0; overflow: hidden; display: flex; align-items: center; justify-content: center; padding: 8px; }
+  #brand { flex: none; display: flex; align-items: center; gap: 10px; padding: 12px 20px 0; }
+  #brand .led { width: 8px; height: 8px; border-radius: 50%; background: #ff2d3d; box-shadow: 0 0 7px #ff2d3d, inset 0 -1px 1px rgba(0,0,0,.4); }
+  #brand .logo { font-size: 15px; color: var(--ink); text-shadow: 0 1px 0 rgba(255,255,255,.45); }
+  #brand .sub { margin-left: auto; font-size: 7px; color: var(--ink-soft); letter-spacing: 1px; }
+  #stage { flex: 1; min-height: 0; overflow: hidden; display: flex; align-items: center; justify-content: center; padding: 8px 12px; }
+  #bezel {
+    position: relative; padding: 12px; background: var(--bezel); border-radius: 12px 12px 34px 12px;
+    box-shadow: inset 0 3px 8px rgba(0,0,0,.7), 0 2px 0 rgba(255,255,255,.35), 0 -1px 0 rgba(0,0,0,.2);
+  }
+  #bezel::after {   /* glass glare + faint scanlines over the screen */
+    content: ''; position: absolute; inset: 12px; border-radius: 3px; pointer-events: none;
+    background:
+      linear-gradient(135deg, rgba(255,255,255,.08) 0%, rgba(255,255,255,0) 38%),
+      repeating-linear-gradient(0deg, rgba(0,0,0,.10) 0 1px, transparent 1px 3px);
+  }
   canvas {
     display: block; width: 224px; height: 256px; image-rendering: pixelated; image-rendering: crisp-edges;
-    background: #070b1e; border-radius: 6px; box-shadow: 0 0 0 2px #151b36, 0 10px 40px rgba(0,0,0,.6);
+    background: #070b1e; border-radius: 3px;
   }
-  #hint { flex: none; display: none; text-align: center; color: #6f7aa3; font: 13px/1.4 system-ui, sans-serif; padding: 0 8px 14px; }
-  #hint b { color: #b8c7dd; font-weight: 600; }
+  #hint { flex: none; display: none; text-align: center; color: var(--ink-soft); font: 13px/1.4 system-ui, sans-serif; padding: 0 8px 14px; }
+  #hint b { color: var(--ink); font-weight: 700; }
 
   #pad {
     --dp: min(150px, 39vw); --jb: min(100px, 26vw);
     flex: none; height: calc(var(--dp) + 44px); display: flex; align-items: center; justify-content: space-between; gap: 8px;
     padding: 6px max(12px, env(safe-area-inset-right)) calc(14px + env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
   }
-  @media (orientation: portrait) and (pointer: coarse) { #stage { align-items: flex-end; } }
   /* Big invisible touch zones: the whole left side steers, the whole right side jumps.
      The drawn D-pad and JUMP button are only visuals, so near-misses still count. */
   .zone { flex: 1 0 auto; align-self: stretch; display: flex; align-items: center; touch-action: none; }
   #dzone { justify-content: flex-start; }
   #jzone { justify-content: flex-end; }
   #dpad, #jump { pointer-events: none; }
+  /* cross-shaped D-pad in dark plastic, sitting in a shallow round well */
   #dpad {
-    position: relative; width: var(--dp); height: var(--dp); border-radius: 50%; flex: none;
-    background: radial-gradient(circle at 50% 40%, #232c52, #111733 70%);
-    box-shadow: inset 0 0 0 3px #2f3a6b, 0 6px 0 #05070f;
+    position: relative; width: var(--dp); height: var(--dp); flex: none; border-radius: 50%;
+    background: radial-gradient(circle, rgba(0,0,0,.16) 0 64%, transparent 65%);
   }
+  #dpad::before, #dpad::after {
+    content: ''; position: absolute; border-radius: 10px;
+    background: linear-gradient(var(--key-hi), var(--key));
+    box-shadow: 0 5px 0 #7a3200, inset 0 1px 0 rgba(255,255,255,.14);
+  }
+  #dpad::before { left: 8%; right: 8%; top: 34%; height: 32%; }
+  #dpad::after  { top: 8%; bottom: 8%; left: 34%; width: 32%; }
   #dpad .knob {
-    position: absolute; left: 50%; top: 50%; width: 30%; height: 30%; margin: -15% 0 0 -15%; border-radius: 50%;
-    background: rgba(255,176,0,.22); box-shadow: 0 0 0 2px rgba(255,176,0,.55); opacity: 0; transition: opacity .08s;
+    position: absolute; z-index: 2; left: 50%; top: 50%; width: 26%; height: 26%; margin: -13% 0 0 -13%; border-radius: 50%;
+    background: rgba(255,214,160,.28); box-shadow: 0 0 0 2px rgba(255,214,160,.6); opacity: 0; transition: opacity .08s;
   }
   #dpad.on .knob { opacity: 1; }
-  #dpad .a { position: absolute; width: 0; height: 0; border-style: solid; opacity: .75; }
-  #dpad .up    { left: 50%; top: 10%;    transform: translateX(-50%); border-width: 0 17px 24px 17px; border-color: transparent transparent #b8c7dd transparent; }
-  #dpad .down  { left: 50%; bottom: 10%; transform: translateX(-50%); border-width: 24px 17px 0 17px; border-color: #b8c7dd transparent transparent transparent; }
-  #dpad .left  { top: 50%; left: 10%;    transform: translateY(-50%); border-width: 17px 24px 17px 0; border-color: transparent #b8c7dd transparent transparent; }
-  #dpad .right { top: 50%; right: 10%;   transform: translateY(-50%); border-width: 17px 0 17px 24px; border-color: transparent transparent transparent #b8c7dd; }
-  #dpad.u .up    { border-bottom-color: #ffb000; opacity: 1; }
-  #dpad.d .down  { border-top-color: #ffb000; opacity: 1; }
-  #dpad.l .left  { border-right-color: #ffb000; opacity: 1; }
-  #dpad.r .right { border-left-color: #ffb000; opacity: 1; }
-  #dpad .hub { position: absolute; left: 50%; top: 50%; width: 26%; height: 26%; transform: translate(-50%, -50%); border-radius: 50%; background: #0b1026; box-shadow: inset 0 0 0 2px #2f3a6b; }
+  #dpad .a { position: absolute; z-index: 1; width: 0; height: 0; border-style: solid; }
+  #dpad .up    { left: 50%; top: 15%;    transform: translateX(-50%); border-width: 0 10px 13px 10px; border-color: transparent transparent #85786c transparent; }
+  #dpad .down  { left: 50%; bottom: 15%; transform: translateX(-50%); border-width: 13px 10px 0 10px; border-color: #85786c transparent transparent transparent; }
+  #dpad .left  { top: 50%; left: 15%;    transform: translateY(-50%); border-width: 10px 13px 10px 0; border-color: transparent #85786c transparent transparent; }
+  #dpad .right { top: 50%; right: 15%;   transform: translateY(-50%); border-width: 10px 0 10px 13px; border-color: transparent transparent transparent #85786c; }
+  #dpad.u .up    { border-bottom-color: #ffd9a8; }
+  #dpad.d .down  { border-top-color: #ffd9a8; }
+  #dpad.l .left  { border-right-color: #ffd9a8; }
+  #dpad.r .right { border-left-color: #ffd9a8; }
+  #dpad .hub { position: absolute; z-index: 1; left: 50%; top: 50%; width: 18%; height: 18%; transform: translate(-50%, -50%); border-radius: 50%; background: radial-gradient(#1c1814, #2e2721); }
 
+  /* big round red action button */
   #jump {
     width: var(--jb); height: var(--jb); border-radius: 50%; flex: none;
-    background: radial-gradient(circle at 40% 35%, #ffd36b, #ffb000 60%, #d98a00);
-    color: #3a1d00; font-size: 12px; display: flex; align-items: center; justify-content: center;
-    box-shadow: 0 7px 0 #8a4b00, inset 0 0 0 3px #3a1d00;
+    background: radial-gradient(circle at 38% 32%, #ff6b7d, #d81f3a 55%, #9c1029);
+    color: #ffe3e7; font-size: 11px; display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 7px 0 #7a0c1f, 0 10px 12px rgba(80,20,0,.35), inset 0 2px 0 rgba(255,255,255,.35);
   }
-  #jump.on { transform: translateY(5px); box-shadow: 0 2px 0 #8a4b00, inset 0 0 0 3px #3a1d00; filter: brightness(1.12); }
+  #jump.on { transform: translateY(5px); box-shadow: 0 2px 0 #7a0c1f, 0 4px 6px rgba(80,20,0,.3), inset 0 2px 0 rgba(255,255,255,.35); filter: brightness(1.1); }
   #mid { display: flex; flex-direction: column; gap: 14px; align-items: center; position: relative; z-index: 2; }
   #mid button {
-    font: inherit; font-size: 8px; color: #b8c7dd; background: #141a36; border: 2px solid #2f3a6b; white-space: nowrap;
-    border-radius: 16px; padding: 11px 6px; min-width: 78px; touch-action: manipulation; cursor: pointer;
+    font: inherit; font-size: 8px; color: #ffd9b0; white-space: nowrap; border: none; border-radius: 999px;
+    background: linear-gradient(var(--key-hi), var(--key)); box-shadow: 0 3px 0 #7a3200, inset 0 1px 0 rgba(255,255,255,.14);
+    padding: 10px 8px; min-width: 80px; touch-action: manipulation; cursor: pointer;
   }
-  #mid button:active { background: #232c52; }
+  #mid button:active { transform: translateY(2px); box-shadow: 0 1px 0 #7a3200; }
 
   @media (hover: hover) and (pointer: fine) {
+    /* on a computer: a centred handheld with rounded corners, played with the keyboard */
+    #app { inset: 16px auto 16px 50%; transform: translateX(-50%); width: min(600px, calc(100vw - 32px)); border-radius: 30px;
+           box-shadow: 0 40px 90px rgba(0,0,0,.65), inset 0 2px 0 rgba(255,255,255,.45), inset 0 -6px 0 rgba(0,0,0,.14); }
     #pad { display: none; }
     #hint { display: block; }
   }
   @media (orientation: landscape) and (pointer: coarse) {
+    #brand { display: none; }
     #pad { position: absolute; inset: 0; height: auto; padding: 0; pointer-events: none; }
     #dzone { position: absolute; left: 0; bottom: 0; width: min(42vw, 300px); height: 85%; align-items: flex-end; pointer-events: auto;
              padding: 0 0 calc(20px + env(safe-area-inset-bottom)) calc(20px + env(safe-area-inset-left)); }
@@ -96,7 +133,8 @@
 </head>
 <body>
 <div id="app">
-  <div id="stage"><canvas id="c" aria-label="BOLTZ! game screen"></canvas></div>
+  <div id="brand"><span class="led"></span><span class="logo">BOLTZ!</span><span class="sub">POCKET ARCADE</span></div>
+  <div id="stage"><div id="bezel"><canvas id="c" aria-label="BOLTZ! game screen"></canvas></div></div>
   <div id="hint"><b>← →</b> move &nbsp;·&nbsp; <b>↑ ↓</b> climb &nbsp;·&nbsp; <b>Space</b> jump &nbsp;·&nbsp; <b>Enter</b> start &nbsp;·&nbsp; <b>P</b> pause &nbsp;·&nbsp; <b>M</b> sound</div>
   <div id="pad">
     <div id="dzone" class="zone" aria-label="Direction pad"><div id="dpad"><span class="a up"></span><span class="a down"></span><span class="a left"></span><span class="a right"></span><span class="hub"></span><span class="knob"></span></div></div>
@@ -116,7 +154,7 @@
 
 const W = 224, H = 256, S = 4;           // logical screen, internal render scale
 // JUMP_G is a touch lighter than normal gravity: a committed, slightly floaty arcade hop (~half a second).
-const FOOT = 2, GRAV = 0.16, JUMP_V = -1.95, JUMP_G = 0.13, MAXFALL = 3.2, FALL_DEATH = 22, WALK = 1.0, CLIMB = 0.8;
+const FOOT = 2, GRAV = 0.16, JUMP_V = -2.0, JUMP_G = 0.12, MAXFALL = 3.2, FALL_DEATH = 22, WALK = 1.0, CLIMB = 0.8;
 const FONT = '"Press Start 2P", ui-monospace, Menlo, Consolas, monospace';
 const C = {
   bg: '#070b1e', girder: '#ffb000', girderHi: '#ffd36b', ladder: '#b8c7dd', white: '#ffffff',
@@ -413,9 +451,10 @@ function landing(x, y0, y1, enemy) {
   return best;
 }
 const hit = (a, b) => a.x1 < b.x2 && a.x2 > b.x1 && a.y1 < b.y2 && a.y2 > b.y1;
+// Arcade-style forgiving hitboxes: the dangerous core is smaller than the drawn sprite,
+// so clearing a drum by a hair counts (drum sprites are 10x10, their core is 6x7).
 function ebox(e) {
-  const hw = e.type === 'drum' ? 5 : 4, h = e.type === 'drum' ? 10 : 9;
-  return { x1: e.x - hw + 1, x2: e.x + hw - 1, y1: e.y - h + 1, y2: e.y - 1 };
+  return { x1: e.x - 3, x2: e.x + 3, y1: e.y - 7, y2: e.y - 1 };
 }
 
 /* ---------------- stage builders ---------------- */
@@ -951,7 +990,7 @@ function smash(e) {
 }
 
 function checkHits() {
-  const p = pl, body = { x1: p.x - 3, x2: p.x + 3, y1: p.y - 12, y2: p.y - 1 };
+  const p = pl, body = { x1: p.x - 2, x2: p.x + 2, y1: p.y - 11, y2: p.y - 1 };
   let mb = null;
   if (p.mallet > 0 && p.state !== 'climb')
     mb = p.dir > 0 ? { x1: p.x - 6, x2: p.x + 20, y1: p.y - 30, y2: p.y } : { x1: p.x - 20, x2: p.x + 6, y1: p.y - 30, y2: p.y };
@@ -1305,35 +1344,58 @@ function frameBox(x, y, w, h) {
   R(x, y, w, h, 'rgba(4,6,15,0.92)');
   R(x, y, w, 1, C.girder); R(x, y + h - 1, w, 1, C.girder); R(x, y, 1, h, C.girder); R(x + w - 1, y, 1, h, C.girder);
 }
+// Title "attract mode": two uncluttered pages that take turns, like an arcade cabinet.
+const TITLE_PAGE = 420;   // frames per page (7 s)
 function drawTitle() {
-  const t = game.t;
+  const t = game.t, page = Math.floor(t / TITLE_PAGE) % 2, pt = t % TITLE_PAGE;
   drawStars(t);
-  txt('HI-SCORE ' + pad6(game.hi), 112, 8, C.cyan, 'center');
+  if (page === 0) drawTitleLogo(t); else drawHowTo(pt);
+  // start prompt + page dots, same place on both pages
+  if ((t >> 5) & 1) txtS(isTouch ? 'TAP JUMP TO START' : 'PRESS SPACE TO START', 112, 214, C.girder, 'center');
+  for (let i = 0; i < 2; i++) R(106 + i * 8, 236, 4, 4, i === page ? C.girder : '#2a3366');
+}
+function drawTitleLogo(t) {
+  txt('HI-SCORE ' + pad6(game.hi), 112, 10, C.cyan, 'center');
   // logo: chunky gradient letters with a purple drop shadow and a bolt on each side
   const bob = Math.round(Math.sin(t / 18) * 1.5);
-  const grad = ctx.createLinearGradient(0, 30 + bob, 0, 62 + bob);
+  const grad = ctx.createLinearGradient(0, 40 + bob, 0, 72 + bob);
   grad.addColorStop(0, '#fff3b0'); grad.addColorStop(0.45, '#ffb000'); grad.addColorStop(1, '#ff6a00');
-  txt('BOLTZ!', 115, 35 + bob, '#3b1580', 'center', 28);
-  txt('BOLTZ!', 113, 33 + bob, '#7c3aed', 'center', 28);
-  txt('BOLTZ!', 112, 31 + bob, grad, 'center', 28);
+  txt('BOLTZ!', 115, 45 + bob, '#3b1580', 'center', 28);
+  txt('BOLTZ!', 113, 43 + bob, '#7c3aed', 'center', 28);
+  txt('BOLTZ!', 112, 41 + bob, grad, 'center', 28);
   for (const bx of [8, 206]) {
-    R(bx, 40, 10, 10, '#ffd23f'); R(bx, 40, 10, 1, '#fff3b0'); R(bx + 4, 41, 2, 8, '#8a6a00'); R(bx + 1, 44, 8, 2, '#8a6a00');
+    R(bx, 50, 10, 10, '#ffd23f'); R(bx, 50, 10, 1, '#fff3b0'); R(bx + 4, 51, 2, 8, '#8a6a00'); R(bx + 1, 54, 8, 2, '#8a6a00');
   }
-  txt('THE SHIPYARD RESCUE', 112, 70, C.cyan, 'center');
-  txt('SAVE SPARKY FROM BOLTZ!', 112, 92, C.white, 'center');
-  for (let x = 24; x < 200; x += 8) girderTile(x, 150, 8);
+  txt('THE SHIPYARD RESCUE', 112, 82, C.cyan, 'center');
+  // little scene: the welder, Boltz, and Sparky on a girder
+  for (let x = 24; x < 200; x += 8) girderTile(x, 168, 8);
   const phase = (t >> 5) % 3;
-  drawRobot({ x: 150, y: 150, pose: phase === 0 ? 'pound' : phase === 1 ? 'hold' : 'idle' }, t);
-  drawDogAt(186, 150, t, false);
-  if ((t >> 4) % 4) txtS('WOOF!', 186, 126, C.white, 'center');
-  const hx = 72 + Math.sin(t / 40) * 34, hdir = Math.cos(t / 40) >= 0 ? 1 : -1;
-  spr([HERO.w1, HERO.stand, HERO.w2, HERO.stand][(t >> 2) & 3], hx - 6, 134, hdir < 0);
-  if ((t >> 5) & 1) txtS(isTouch ? 'TAP JUMP TO START' : 'PRESS ENTER OR SPACE', 112, 170, C.girder, 'center');
-  const lines = isTouch
-    ? ['D-PAD   MOVE + CLIMB', 'JUMP    HOP OBSTACLES', 'GRAB A MALLET TO SMASH']
-    : ['ARROWS  MOVE + CLIMB', 'SPACE   JUMP', 'P PAUSE   M SOUND'];
-  lines.forEach((s, i) => txt(s, 112, 192 + i * 12, C.soft, 'center'));
-  txt('ORIGINAL ARCADE CLIMBER', 112, 240, C.dim, 'center');
+  drawRobot({ x: 146, y: 168, pose: phase === 0 ? 'pound' : phase === 1 ? 'hold' : 'idle' }, t);
+  drawDogAt(184, 168, t, false);
+  const hx = 70 + Math.sin(t / 40) * 30, hdir = Math.cos(t / 40) >= 0 ? 1 : -1;
+  spr([HERO.w1, HERO.stand, HERO.w2, HERO.stand][(t >> 2) & 3], hx - 6, 152, hdir < 0);
+}
+function drawHowTo(pt) {
+  txtS('HOW TO PLAY', 112, 12, C.white, 'center', 16);
+  const rowY = [48, 88, 128, 168];
+  const label = (y, a, b) => { txt(a, 66, y - 12, C.white); if (b) txt(b, 66, y - 1, C.soft); };
+  // 1. jump the drums (a little drum rolls under a hopping welder)
+  const hop = Math.abs(Math.sin(pt / 14)) * 8;
+  spr(HERO.jump, 22, rowY[0] - 16 - hop, false);
+  drawDrumAt(28 + ((pt * 0.6) % 24) - 12, rowY[0], pt * 0.6, false);
+  label(rowY[0], 'JUMP OVER', 'THE DRUMS');
+  // 2. climb ladders
+  R(24, rowY[1] - 22, 1, 22, C.ladder); R(31, rowY[1] - 22, 1, 22, C.ladder);
+  for (let y = rowY[1] - 20; y < rowY[1]; y += 4) R(25, y, 6, 1, C.ladder);
+  spr(HERO.climb, 22, rowY[1] - 18 - ((pt >> 3) % 3), (pt >> 3) & 1);
+  label(rowY[1], 'CLIMB UP', 'THE LADDERS');
+  // 3. mallet
+  R(24, rowY[2] - 14, 8, 5, '#d1d5db'); R(24, rowY[2] - 12, 8, 1, '#8b93a7'); R(27, rowY[2] - 9, 2, 8, '#b7791f');
+  label(rowY[2], 'GRAB A MALLET', 'TO SMASH THINGS');
+  // 4. reach Sparky
+  drawDogAt(28, rowY[3] - 2, pt, true);
+  label(rowY[3], 'REACH SPARKY', 'AT THE TOP');
+  if (!isTouch) txt('ARROWS MOVE + CLIMB', 112, 194, C.dim, 'center');
 }
 function drawIntro() {
   drawStars(game.t); drawHUD();
@@ -1397,7 +1459,8 @@ function draw() {
 const stageEl = document.getElementById('stage');
 function fit() {
   const r = stageEl.getBoundingClientRect();
-  let sc = Math.min((r.width - 16) / W, (r.height - 16) / H);
+  // stage padding (12+12 / 8+8) plus the screen bezel (12 each side)
+  let sc = Math.min((r.width - 48) / W, (r.height - 40) / H);
   if (sc >= 2) sc = Math.floor(sc * 2) / 2;
   sc = Math.max(sc, 0.5);
   cv.style.width = Math.floor(W * sc) + 'px'; cv.style.height = Math.floor(H * sc) + 'px';
